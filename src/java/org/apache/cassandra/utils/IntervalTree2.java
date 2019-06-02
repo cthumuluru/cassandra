@@ -39,220 +39,252 @@ import com.google.common.base.Joiner;
 import com.google.common.collect.Iterators;
 
 public class IntervalTree2<C extends Comparable<C>, D, I extends Interval<C, D>> implements Iterable<I> {
-    @SuppressWarnings({ "unchecked", "rawtypes" })
-    private static final IntervalTree2 EMPTY_TREE = new IntervalTree2(Collections.emptyList(), null);
+	@SuppressWarnings({ "unchecked", "rawtypes" })
+	private static final IntervalTree2 EMPTY_TREE = new IntervalTree2(Collections.emptyList(), null);
 
-    private final Comparator<C> comparator;
-    private final Comparator<C> comparatorWithFallback;
+	private final Comparator<C> comparator;
+	private final Comparator<C> comparatorWithFallback;
 
-    private List<I> orderedIntervals;
-    private C low = null;
-    private C high = null;
+	private final List<I> minOrderedIntervals;
+	private final List<I> maxOrderedIntervals;
 
-    final Comparator<I> minOrdering;
-    final Comparator<I> maxOrdering;
+	private C low = null;
+	private C high = null;
 
-    public IntervalTree2(Collection<I> intervals, Comparator<C> comparator) {
-        this.comparator = comparator;
-        this.comparatorWithFallback = Optional.ofNullable(comparator).orElse((c1, c2) -> c1.compareTo(c2));
-        this.minOrdering = (i1, i2) -> comparatorWithFallback.compare(i1.min, i2.min);
-        this.maxOrdering = (i1, i2) -> comparatorWithFallback.compare(i1.max, i2.max);
+	final Comparator<I> minOrdering;
+	final Comparator<I> maxOrdering;
 
-        orderedIntervals = Collections
-                .unmodifiableList(intervals.stream().sorted(minOrdering).collect(Collectors.toList()));
-        if (!orderedIntervals.isEmpty()) {
-            low = orderedIntervals.get(0).min;
-            high = Collections.max(orderedIntervals, maxOrdering).max;
-        }
-    }
+	public IntervalTree2(Collection<I> intervals, Comparator<C> comparator) {
+		this.comparator = comparator;
+		this.comparatorWithFallback = Optional.ofNullable(comparator).orElse((c1, c2) -> c1.compareTo(c2));
+		this.minOrdering = (i1, i2) -> comparatorWithFallback.compare(i1.min, i2.min);
+		this.maxOrdering = (i1, i2) -> comparatorWithFallback.compare(i1.max, i2.max);
 
-    @Override
-    public Iterator<I> iterator() {
-        return orderedIntervals.iterator();
-    }
+		minOrderedIntervals = Collections
+				.unmodifiableList(intervals.stream().sorted(minOrdering).collect(Collectors.toList()));
+		maxOrderedIntervals = Collections
+				.unmodifiableList(intervals.stream().sorted(maxOrdering).collect(Collectors.toList()));
 
-    public List<D> search(Interval<C, D> searchInterval) {
-        if (orderedIntervals.isEmpty()) {
-            return Collections.emptyList();
-        }
+		if (!minOrderedIntervals.isEmpty()) {
+			low = minOrderedIntervals.get(0).min;
+			high = maxOrderedIntervals.get(0).max;
+		}
+	}
 
-        // encloses all intervals.
-        if (searchInterval.min.compareTo(low) <= 0 && searchInterval.max.compareTo(high) >= 0) {
-            return orderedIntervals.stream().map(i -> i.data).collect(Collectors.toList());
-        }
+	@Override
+	public Iterator<I> iterator() {
+		return minOrderedIntervals.iterator();
+	}
 
-        // find the ceil element index bigger than max index of search interval.
-        int endPos = ceil(orderedIntervals, searchInterval);
+	public List<D> search(Interval<C, D> searchInterval) {
+		if (minOrderedIntervals.isEmpty()) {
+			return Collections.emptyList();
+		}
 
-        return orderedIntervals.subList(0, endPos).stream().filter(i -> overlaps(i, searchInterval)).map(i -> i.data)
-                .collect(Collectors.toList());
-    }
+		// encloses all intervals.
+		if (searchInterval.min.compareTo(low) <= 0 && searchInterval.max.compareTo(high) >= 0) {
+			return minOrderedIntervals.stream().map(i -> i.data).collect(Collectors.toList());
+		}
 
-    private int ceil(List<I> orderedIntervals, Interval<C, D> searchInterval) {
-        int endPos = Collections.binarySearch(orderedIntervals, searchInterval,
-                (i1, i2) -> comparatorWithFallback.compare(i1.min, i2.max));
-        endPos = (endPos < 0) ? Math.abs(endPos + 1) : endPos;
+		// TODO: REWORD
+		// find the ceil min element index bigger than max index of search interval.
+		int endPos = ceil(minOrderedIntervals, searchInterval);
 
-        // binary search given insert position or any position with the same value we
-        // are searching for. in case of same value, find the position of the last
-        // value.
-        while (endPos < orderedIntervals.size() && orderedIntervals.get(endPos).min.equals(searchInterval.max)) {
-            endPos++;
-        }
+		// TODO: REWORD
+		// find the floor max element index smaller than the min index of search
+		// interval.
+		int startPos = floor(maxOrderedIntervals, searchInterval);
 
-        return endPos;
-    }
+		// prefer the shorter sublist to traverse.
+		if (maxOrderedIntervals.size() - startPos < endPos) {
+			return maxOrderedIntervals.subList(startPos, maxOrderedIntervals.size()).stream()
+					.filter(i -> overlaps(i, searchInterval)).map(i -> i.data).collect(Collectors.toList());
+		} else {
+			return minOrderedIntervals.subList(0, endPos).stream().filter(i -> overlaps(i, searchInterval))
+					.map(i -> i.data).collect(Collectors.toList());
+		}
+	}
 
-    private boolean overlaps(Interval<C, D> i1, Interval<C, D> i2) {
-        return !((i1.min.compareTo(i2.max) > 0) || (i1.max.compareTo(i2.min) < 0));
-    }
+	private int ceil(List<I> orderedIntervals, Interval<C, D> searchInterval) {
+		int endPos = Collections.binarySearch(orderedIntervals, searchInterval,
+				(i1, i2) -> comparatorWithFallback.compare(i1.min, i2.max));
+		endPos = (endPos < 0) ? Math.abs(endPos + 1) : endPos;
 
-    public List<D> search(C point) {
-        return search(Interval.<C, D>create(point, point, null));
-    }
+		// binary search given insert position or any position with the same value we
+		// are searching for. in case of same value, find the position of the last
+		// value.
+		while (endPos < orderedIntervals.size() && orderedIntervals.get(endPos).min.equals(searchInterval.max)) {
+			endPos++;
+		}
 
-    public static <C extends Comparable<C>, D, I extends Interval<C, D>> IntervalTree2<C, D, I> build(
-            Collection<I> intervals, Comparator<C> comparator) {
-        if (intervals == null || intervals.isEmpty())
-            return emptyTree();
+		return endPos;
+	}
 
-        return new IntervalTree2<C, D, I>(intervals, comparator);
-    }
+	private int floor(List<I> orderedIntervals, Interval<C, D> searchInterval) {
+		int startPos = Collections.binarySearch(orderedIntervals, searchInterval,
+				(i1, i2) -> comparatorWithFallback.compare(i1.max, i2.min));
+		startPos = (startPos < 0) ? Math.abs(startPos + 1) : startPos;
 
-    public static <C extends Comparable<C>, D, I extends Interval<C, D>> IntervalTree2<C, D, I> build(
-            Collection<I> intervals) {
-        if (intervals == null || intervals.isEmpty())
-            return emptyTree();
+		// binary search given insert position or any position with the same value we
+		// are searching for. in case of same value, find the position of the last
+		// value.
+		while (startPos > 0 && orderedIntervals.get(startPos).max.equals(searchInterval.min)) {
+			startPos--;
+		}
 
-        return new IntervalTree2<C, D, I>(intervals, null);
-    }
+		return startPos;
+	}
 
-    public static <C extends Comparable<C>, D, I extends Interval<C, D>> Serializer<C, D, I> serializer(
-            ISerializer<C> pointSerializer, ISerializer<D> dataSerializer, Constructor<I> constructor) {
-        return new Serializer<>(pointSerializer, dataSerializer, constructor);
-    }
+	private boolean overlaps(Interval<C, D> i1, Interval<C, D> i2) {
+		return !((i1.min.compareTo(i2.max) > 0) || (i1.max.compareTo(i2.min) < 0));
+	}
 
-    @SuppressWarnings("unchecked")
-    public static <C extends Comparable<C>, D, I extends Interval<C, D>> IntervalTree2<C, D, I> emptyTree() {
-        return (IntervalTree2<C, D, I>) EMPTY_TREE;
-    }
+	public List<D> search(C point) {
+		return search(Interval.<C, D>create(point, point, null));
+	}
 
-    public Comparator<C> comparator() {
-        return comparator;
-    }
+	public static <C extends Comparable<C>, D, I extends Interval<C, D>> IntervalTree2<C, D, I> build(
+			Collection<I> intervals, Comparator<C> comparator) {
+		if (intervals == null || intervals.isEmpty())
+			return emptyTree();
 
-    public int intervalCount() {
-        return orderedIntervals.size();
-    }
+		return new IntervalTree2<C, D, I>(intervals, comparator);
+	}
 
-    public boolean isEmpty() {
-        return orderedIntervals.isEmpty();
-    }
+	public static <C extends Comparable<C>, D, I extends Interval<C, D>> IntervalTree2<C, D, I> build(
+			Collection<I> intervals) {
+		if (intervals == null || intervals.isEmpty())
+			return emptyTree();
 
-    public C max() {
-        if (orderedIntervals.isEmpty()) {
-            throw new IllegalStateException();
-        }
+		return new IntervalTree2<C, D, I>(intervals, null);
+	}
 
-        return high;
-    }
+	public static <C extends Comparable<C>, D, I extends Interval<C, D>> Serializer<C, D, I> serializer(
+			ISerializer<C> pointSerializer, ISerializer<D> dataSerializer, Constructor<I> constructor) {
+		return new Serializer<>(pointSerializer, dataSerializer, constructor);
+	}
 
-    public C min() {
-        if (orderedIntervals.isEmpty()) {
-            throw new IllegalStateException();
-        }
+	@SuppressWarnings("unchecked")
+	public static <C extends Comparable<C>, D, I extends Interval<C, D>> IntervalTree2<C, D, I> emptyTree() {
+		return (IntervalTree2<C, D, I>) EMPTY_TREE;
+	}
 
-        return low;
-    }
+	public Comparator<C> comparator() {
+		return comparator;
+	}
 
-    @Override
-    public String toString() {
-        return "<" + Joiner.on(", ").join(this) + ">";
-    }
+	public int intervalCount() {
+		return minOrderedIntervals.size();
+	}
 
-    @Override
-    public boolean equals(Object o) {
-        if (!(o instanceof IntervalTree2)) {
-            return false;
-        }
+	public boolean isEmpty() {
+		return minOrderedIntervals.isEmpty();
+	}
 
-        @SuppressWarnings("rawtypes")
-        IntervalTree2 that = (IntervalTree2) o;
+	public C max() {
+		if (minOrderedIntervals.isEmpty()) {
+			throw new IllegalStateException();
+		}
 
-        return Iterators.elementsEqual(iterator(), that.iterator());
-    }
+		return high;
+	}
 
-    @Override
-    public final int hashCode() {
-        int result = comparator.hashCode();
-        for (Interval<C, D> interval : this)
-            result = 31 * result + interval.hashCode();
-        return result;
-    }
+	public C min() {
+		if (minOrderedIntervals.isEmpty()) {
+			throw new IllegalStateException();
+		}
 
-    public static class Serializer<C extends Comparable<C>, D, I extends Interval<C, D>>
-            implements IVersionedSerializer<IntervalTree2<C, D, I>> {
-        private final ISerializer<C> pointSerializer;
-        private final ISerializer<D> dataSerializer;
-        private final Constructor<I> constructor;
+		return low;
+	}
 
-        private Serializer(ISerializer<C> pointSerializer, ISerializer<D> dataSerializer, Constructor<I> constructor) {
-            this.pointSerializer = pointSerializer;
-            this.dataSerializer = dataSerializer;
-            this.constructor = constructor;
-        }
+	@Override
+	public String toString() {
+		return "<" + Joiner.on(", ").join(this) + ">";
+	}
 
-        public void serialize(IntervalTree2<C, D, I> it, DataOutputPlus out, int version) throws IOException {
-            out.writeInt(it.orderedIntervals.size());
-            for (Interval<C, D> interval : it) {
-                pointSerializer.serialize(interval.min, out);
-                pointSerializer.serialize(interval.max, out);
-                dataSerializer.serialize(interval.data, out);
-            }
-        }
+	@Override
+	public boolean equals(Object o) {
+		if (!(o instanceof IntervalTree2)) {
+			return false;
+		}
 
-        /**
-         * Deserialize an IntervalTree whose keys use the natural ordering. Use
-         * deserialize(DataInput, int, Comparator) instead if the interval tree is to
-         * use a custom comparator, as the comparator is *not* serialized.
-         */
-        public IntervalTree2<C, D, I> deserialize(DataInput in, int version) throws IOException {
-            return deserialize(in, version, null);
-        }
+		@SuppressWarnings("rawtypes")
+		IntervalTree2 that = (IntervalTree2) o;
 
-        public IntervalTree2<C, D, I> deserialize(DataInput in, int version, Comparator<C> comparator)
-                throws IOException {
-            try {
-                int count = in.readInt();
-                List<Interval<C, D>> intervals = new ArrayList<Interval<C, D>>(count);
-                for (int i = 0; i < count; i++) {
-                    C min = pointSerializer.deserialize(in);
-                    C max = pointSerializer.deserialize(in);
-                    D data = dataSerializer.deserialize(in);
-                    intervals.add(constructor.newInstance(min, max, data));
-                }
-                return new IntervalTree2(intervals, comparator);
-            } catch (InstantiationException e) {
-                throw new RuntimeException(e);
-            } catch (InvocationTargetException e) {
-                throw new RuntimeException(e);
-            } catch (IllegalAccessException e) {
-                throw new RuntimeException(e);
-            }
-        }
+		return Iterators.elementsEqual(iterator(), that.iterator());
+	}
 
-        public long serializedSize(IntervalTree2<C, D, I> it, TypeSizes typeSizes, int version) {
-            long size = typeSizes.sizeof(0);
-            for (Interval<C, D> interval : it) {
-                size += pointSerializer.serializedSize(interval.min, typeSizes);
-                size += pointSerializer.serializedSize(interval.max, typeSizes);
-                size += dataSerializer.serializedSize(interval.data, typeSizes);
-            }
-            return size;
-        }
+	@Override
+	public final int hashCode() {
+		int result = comparator.hashCode();
+		for (Interval<C, D> interval : this)
+			result = 31 * result + interval.hashCode();
+		return result;
+	}
 
-        public long serializedSize(IntervalTree2<C, D, I> it, int version) {
-            return serializedSize(it, TypeSizes.NATIVE, version);
-        }
-    }
+	public static class Serializer<C extends Comparable<C>, D, I extends Interval<C, D>>
+			implements IVersionedSerializer<IntervalTree2<C, D, I>> {
+		private final ISerializer<C> pointSerializer;
+		private final ISerializer<D> dataSerializer;
+		private final Constructor<I> constructor;
+
+		private Serializer(ISerializer<C> pointSerializer, ISerializer<D> dataSerializer, Constructor<I> constructor) {
+			this.pointSerializer = pointSerializer;
+			this.dataSerializer = dataSerializer;
+			this.constructor = constructor;
+		}
+
+		public void serialize(IntervalTree2<C, D, I> it, DataOutputPlus out, int version) throws IOException {
+			out.writeInt(it.minOrderedIntervals.size());
+			for (Interval<C, D> interval : it) {
+				pointSerializer.serialize(interval.min, out);
+				pointSerializer.serialize(interval.max, out);
+				dataSerializer.serialize(interval.data, out);
+			}
+		}
+
+		/**
+		 * Deserialize an IntervalTree whose keys use the natural ordering. Use
+		 * deserialize(DataInput, int, Comparator) instead if the interval tree is to
+		 * use a custom comparator, as the comparator is *not* serialized.
+		 */
+		public IntervalTree2<C, D, I> deserialize(DataInput in, int version) throws IOException {
+			return deserialize(in, version, null);
+		}
+
+		public IntervalTree2<C, D, I> deserialize(DataInput in, int version, Comparator<C> comparator)
+				throws IOException {
+			try {
+				int count = in.readInt();
+				List<Interval<C, D>> intervals = new ArrayList<Interval<C, D>>(count);
+				for (int i = 0; i < count; i++) {
+					C min = pointSerializer.deserialize(in);
+					C max = pointSerializer.deserialize(in);
+					D data = dataSerializer.deserialize(in);
+					intervals.add(constructor.newInstance(min, max, data));
+				}
+				return new IntervalTree2(intervals, comparator);
+			} catch (InstantiationException e) {
+				throw new RuntimeException(e);
+			} catch (InvocationTargetException e) {
+				throw new RuntimeException(e);
+			} catch (IllegalAccessException e) {
+				throw new RuntimeException(e);
+			}
+		}
+
+		public long serializedSize(IntervalTree2<C, D, I> it, TypeSizes typeSizes, int version) {
+			long size = typeSizes.sizeof(0);
+			for (Interval<C, D> interval : it) {
+				size += pointSerializer.serializedSize(interval.min, typeSizes);
+				size += pointSerializer.serializedSize(interval.max, typeSizes);
+				size += dataSerializer.serializedSize(interval.data, typeSizes);
+			}
+			return size;
+		}
+
+		public long serializedSize(IntervalTree2<C, D, I> it, int version) {
+			return serializedSize(it, TypeSizes.NATIVE, version);
+		}
+	}
 }
